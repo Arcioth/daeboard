@@ -1,6 +1,6 @@
 # daeboard
 
-Status: **running**. Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`. Unit: `daeboard.service` (transient). Stop with `sudo systemctl stop daeboard`. Socket: `/run/daeboard/daeboard.sock`.
+Status: **running**. README: `README.md`. Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`. Unit: `daeboard.service` (transient). Stop with `sudo systemctl stop daeboard`. Socket: `/run/daeboard/daeboard.sock`. ctron steps are in `~/Documents/ctron/PLANS.md`.
 
 Machine: NixOS, hostname `nixos`, ASUS TUF A15 FA507NVR, kernel 6.18.52. asusd is active.
 
@@ -31,10 +31,10 @@ Backspace and Delete are one gesture.
 | Keys | When | Light |
 |---|---|---|
 | Left or right Meta | held | Firmware breathe in the normal color. Release returns to static normal. |
-| Enter | pressed | Two off/on blinks, back to back, as fast as the EC accepts a brightness write. Then the still-held gesture, if any, shows again. |
-| Backspace, Delete | held | Across 5 s, color moves to pure red and brightness steps to 3. Release of the last of these two fades back to the color captured at press, over 2 s. |
+| Enter | pressed | Two off/on blinks, each edge held 120 ms, so the pair is visible. Then the still-held gesture shows again. |
+| Backspace, Delete | held | Immediately static full red at brightness 3. Release fades back to normal over 2 s. |
 
-Brightness is 0–3, so the red ramp is smooth in color and coarse in brightness. Firmware breathe stays on the EC. The 5 s ramp and the 2 s fade are userspace writes on timerfd. The Enter blink uses `brightness`, not a mode change, so it does not have to reprogram the effect.
+Firmware breathe stays on the EC at speed 2, the fastest value the kernel maps. Enter only changes brightness, one edge per timer wake. Backspace writes red once, with brightness 3 in the same turn, so the mode change does not leave the keyboard dark.
 
 These rows are compiled into the first binary. A later ctron panel can replace them over the socket. The socket's v1 job is normal color, brightness, ping, and quit.
 
@@ -55,7 +55,7 @@ Locked in the spec. One root musl-static binary. epoll on signalfd, the AT keybo
 
 Binary `~/Documents/daeboard/daeboard`, musl static, 66960 bytes. RSS about 100 KB while idle. `make test` prints `ok`.
 
-Kernel accepted `0 0 204 255 254 1` (static) and `0 1 204 255 254 1` (breathe), then static was restored. The phone has not confirmed the breathe looks right. Key gestures are not yet pressed on the hardware.
+Restarted after the gesture timing change. Enter holds each edge 120 ms. Backspace snaps to red. Meta breathe uses speed 2. Try those three on the built-in keyboard.
 
 `ping` returned `pong`. `color ccfffe` returned `ok`.
 

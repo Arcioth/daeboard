@@ -49,9 +49,9 @@ Watched codes, and only these. Every other event is discarded in the read loop. 
 
 | Gesture | Keys | While it owns the LED |
 |---|---|---|
-| meta | `KEY_LEFTMETA`, `KEY_RIGHTMETA` | One write: mode breathe, normal color, speed 1. No timer. Release ends it. |
-| enter | `KEY_ENTER` | Four `brightness` writes back to back: `0`, normal, `0`, normal. No mode write. Ends when the fourth write has been issued. Pressing Enter again during that sequence starts it over. |
-| erase | `KEY_BACKSPACE`, `KEY_DELETE` | While held, color moves from the normal captured at the press to `255 0 0`, and brightness steps from the captured brightness to 3, across 5 seconds. Release fades from the color at the release back to the normal snapshotted at release, across 2 seconds. |
+| meta | `KEY_LEFTMETA`, `KEY_RIGHTMETA` | One write: mode breathe, normal color, speed 2, plus brightness at the normal level. No timer. Release ends it. |
+| enter | `KEY_ENTER` | Four brightness edges, 120 ms apart: `0`, normal, `0`, normal. No mode write. A repeat during the blink starts the four edges over. |
+| erase | `KEY_BACKSPACE`, `KEY_DELETE` | While held, one static write of `255 0 0` and brightness 3. Release fades from that red back to the normal snapshotted at release, across 2 seconds. |
 
 Left and right Meta are one gesture. Backspace and Delete are one gesture. The second of the pair going down does not restart the clock.
 
@@ -64,7 +64,7 @@ Newest press owns the LED:
 - Erase stays active through its 2 second fade. If the fade finishes while hidden, erase drops out. If nothing else is active, the next visible state is static normal.
 - Meta's breathe write happens on the transition into ownership, not on a timer. The next owner's first frame replaces the mode. Enter, while it owns, touches only brightness, so a breathe it preempted is still the firmware mode when Enter finishes and Meta is still down.
 
-The ramp and the fade arm the timer at 50 ms while they are the owner. At `u = 1` on a hold, the timer disarms and the frame stays full red until release. When a fade reaches `u = 1`, that gesture ends; if no other gesture is active, the transition to idle writes static normal once. Brightness is `round(lerp(start, 3, u))` and is written only when the step changes. Color is written every tick.
+Enter arms the timer at 120 ms per edge while it owns the LED. The fade arms it at 100 ms. A held erase does not arm the timer. When a fade reaches its end, that gesture ends; if no other gesture is active, the transition to idle writes static normal once. Every mode write is followed by a brightness write in the same turn.
 
 `u` for the hold is `clamp((now - down_since) / 5s, 0, 1)`. `u` for the fade is `clamp((now - released_at) / 2s, 0, 1)`.
 
@@ -87,7 +87,7 @@ Anything else replies `err`. A bad command does not drop the client. The socket 
 
 - A short or failed sysfs write keeps the clock. The next frame retries. The process does not exit. One line goes to stderr for that streak of failures, not one line per tick.
 - evdev `ENODEV` or a hangup removes the fd. Watched keys are treated as released at that instant, so a held erase begins its fade.
-- One timerfd serves both jobs. A ramp or a fade that owns the LED sets it to 50 ms, and each of those ticks also retries the open when the keyboard fd is down. Enter's four writes happen in the turn that saw the key, so Enter does not arm the timer. While the fd is down and no ramp or fade wants a frame, the timer is 1 second and only retries the open.
+- One timerfd serves both jobs. Enter, while it owns the LED, sets it to 120 ms. A fade sets it to 100 ms. Each of those ticks also retries the open when the keyboard fd is down. While the fd is down and no gesture wants a frame, the timer is 1 second and only retries the open.
 - The lock is busy: exit 1.
 
 ## Modules
@@ -105,10 +105,10 @@ Anything else replies `err`. A bad command does not drop the client. The socket 
 
 `make test` runs the gesture tests with no root and no hardware. Cases:
 
-- Meta down, then up, returns to idle. Enter during Meta: Enter owns until the fourth brightness edge is produced, then Meta owns again with no time gap in Meta's start.
-- Erase held 4 seconds, preempted by Meta for 2 seconds, Meta released: the drawn red is the 6 second point, which is full red.
+- Meta down, then up, returns to idle. Meta's breathe write uses speed 2. Enter during Meta: each edge is one brightness write 120 ms apart, then Meta owns again with no time gap in Meta's start.
+- Erase on press writes static `255 0 0` and brightness 3, with the timer disarmed. After Meta preempts and releases, the held erase is still that red.
 - Erase released while Meta owns: the fade clock runs hidden. Meta released after the 2 second fade: the result is idle, not a fade frame.
-- Enter during its own blink: the four edges start over.
+- Enter during its own blink: the four edges start over from off.
 - A non-watched code changes nothing. A repeat (`value 2`) changes nothing.
 - Backspace down, then Delete down, does not reset `down_since`.
 
@@ -116,7 +116,7 @@ On the laptop, one `sudo` pass, then restore:
 
 1. `0 0 204 255 254 1` shows static ice.
 2. `0 1 204 255 254 1` breathes. If it does not, stop. The breathe constant is wrong for this EC and the gesture code does not land on top of a bad mode number.
-3. Hold Meta, tap Enter, hold Backspace past 5 seconds, release it, and confirm the timings above.
+3. Hold Meta, tap Enter, hold Backspace, release it, and confirm the timings above.
 4. SIGTERM leaves static normal.
 
 ## Out of scope

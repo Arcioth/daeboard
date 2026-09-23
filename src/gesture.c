@@ -93,23 +93,8 @@ long long g_erase_since(const struct gstate *s)
 	return s->erase_since;
 }
 
-static void hold_color(const struct gstate *s, long long now,
-		       int *r, int *g, int *b, int *bri)
-{
-	long long e = now - s->erase_since;
-
-	if (e < 0)
-		e = 0;
-	if (e > 5000)
-		e = 5000;
-	*r = lerp(s->base_r, 255, e, 5000);
-	*g = lerp(s->base_g, 0, e, 5000);
-	*b = lerp(s->base_b, 0, e, 5000);
-	*bri = lerp_round(s->base_bri, 3, e, 5000);
-}
-
 static int push_mode(struct gwrite *w, int n, int max,
-		     int mode, int r, int g, int b)
+		     int mode, int r, int g, int b, int speed)
 {
 	if (n >= max)
 		return n;
@@ -118,7 +103,7 @@ static int push_mode(struct gwrite *w, int n, int max,
 	w[n].r = r;
 	w[n].g = g;
 	w[n].b = b;
-	w[n].speed = 1;
+	w[n].speed = speed;
 	w[n].brightness = -1;
 	return n + 1;
 }
@@ -148,17 +133,27 @@ static int present(struct gstate *s, long long now,
 	*timer_ms = 0;
 	owner = g_owner(s, now);
 	if (owner == G_ENTER) {
-		n = push_bri(w, n, maxw, 0);
-		n = push_bri(w, n, maxw, s->nbri);
-		n = push_bri(w, n, maxw, 0);
-		n = push_bri(w, n, maxw, s->nbri);
-		s->lit_bri = s->nbri;
+		long long e = now - s->enter_since;
+		int edge;
+		int step;
+
+		if (e < 0)
+			e = 0;
+		edge = (int)(e / 120);
+		if (edge < 4) {
+			bri = (edge & 1) ? s->nbri : 0;
+			n = push_bri(w, n, maxw, bri);
+			s->lit_bri = bri;
+			step = 120 - (int)(e % 120);
+			*timer_ms = step > 0 ? step : 120;
+			return n;
+		}
 		s->enter_on = 0;
 		owner = g_owner(s, now);
 	}
 	if (owner == G_NONE) {
 		if (s->lit != G_NONE) {
-			n = push_mode(w, n, maxw, 0, s->nr, s->ng, s->nb);
+			n = push_mode(w, n, maxw, 0, s->nr, s->ng, s->nb, 1);
 			n = push_bri(w, n, maxw, s->nbri);
 			s->lit_bri = s->nbri;
 			s->lit = G_NONE;
@@ -168,55 +163,46 @@ static int present(struct gstate *s, long long now,
 	}
 	if (owner == G_META) {
 		if (s->lit != G_META || s->lit_since != s->meta_since) {
-			n = push_mode(w, n, maxw, 1, s->nr, s->ng, s->nb);
-			if (s->lit_bri != s->nbri) {
-				n = push_bri(w, n, maxw, s->nbri);
-				s->lit_bri = s->nbri;
-			}
+			n = push_mode(w, n, maxw, 1, s->nr, s->ng, s->nb, 2);
+			n = push_bri(w, n, maxw, s->nbri);
+			s->lit_bri = s->nbri;
 			s->lit = G_META;
 			s->lit_since = s->meta_since;
 		}
 		return n;
 	}
 
-	/* erase owns the LED */
+	/* erase owns the LED. Held means full red immediately. */
 	if (s->erase_down) {
-		elapsed = now - s->erase_since;
-		if (elapsed < 0)
-			elapsed = 0;
-		if (elapsed >= 5000) {
-			r = 255;
-			g = 0;
-			b = 0;
-			bri = 3;
-			*timer_ms = 0;
-		} else {
-			hold_color(s, now, &r, &g, &b, &bri);
-			*timer_ms = 50;
-		}
+		if (s->lit == G_ERASE && s->lit_since == s->erase_since)
+			return n;
+		n = push_mode(w, n, maxw, 0, 255, 0, 0, 1);
+		n = push_bri(w, n, maxw, 3);
+		s->lit_bri = 3;
+		s->lit = G_ERASE;
+		s->lit_since = s->erase_since;
+		return n;
+	}
+
+	elapsed = now - s->fade_at;
+	if (elapsed < 0)
+		elapsed = 0;
+	if (elapsed >= 2000) {
+		r = s->fade_to_r;
+		g = s->fade_to_g;
+		b = s->fade_to_b;
+		bri = s->fade_to_bri;
+		*timer_ms = 0;
 	} else {
-		elapsed = now - s->fade_at;
-		if (elapsed < 0)
-			elapsed = 0;
-		if (elapsed >= 2000) {
-			r = s->fade_to_r;
-			g = s->fade_to_g;
-			b = s->fade_to_b;
-			bri = s->fade_to_bri;
-			*timer_ms = 0;
-		} else {
-			r = lerp(s->fade_r, s->fade_to_r, elapsed, 2000);
-			g = lerp(s->fade_g, s->fade_to_g, elapsed, 2000);
-			b = lerp(s->fade_b, s->fade_to_b, elapsed, 2000);
-			bri = lerp_round(s->fade_bri, s->fade_to_bri, elapsed, 2000);
-			*timer_ms = 50;
-		}
+		r = lerp(s->fade_r, s->fade_to_r, elapsed, 2000);
+		g = lerp(s->fade_g, s->fade_to_g, elapsed, 2000);
+		b = lerp(s->fade_b, s->fade_to_b, elapsed, 2000);
+		bri = lerp_round(s->fade_bri, s->fade_to_bri, elapsed, 2000);
+		*timer_ms = 100;
 	}
-	n = push_mode(w, n, maxw, 0, r, g, b);
-	if (bri != s->lit_bri) {
-		n = push_bri(w, n, maxw, bri);
-		s->lit_bri = bri;
-	}
+	n = push_mode(w, n, maxw, 0, r, g, b, 1);
+	n = push_bri(w, n, maxw, bri);
+	s->lit_bri = bri;
 	s->lit = G_ERASE;
 	s->lit_since = s->erase_since;
 	return n;
@@ -237,7 +223,10 @@ static void release_erase(struct gstate *s, long long now)
 {
 	s->erase_down = 0;
 	s->fade_at = now;
-	hold_color(s, now, &s->fade_r, &s->fade_g, &s->fade_b, &s->fade_bri);
+	s->fade_r = 255;
+	s->fade_g = 0;
+	s->fade_b = 0;
+	s->fade_bri = 3;
 	s->fade_to_r = s->nr;
 	s->fade_to_g = s->ng;
 	s->fade_to_b = s->nb;

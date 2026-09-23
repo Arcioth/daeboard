@@ -27,6 +27,7 @@ static void test_meta_and_enter(void)
 	expect(g_owner(&s, 0) == G_META, "meta owns on press");
 	expect(g_meta_since(&s) == 0, "meta start is the press");
 	expect(n >= 1 && w[0].kind == GW_MODE && w[0].mode == 1, "meta writes breathe");
+	expect(w[0].speed == 2, "breathe uses the fast speed");
 	expect(w[0].r == 204 && w[0].g == 255 && w[0].b == 254, "breathe uses normal");
 
 	n = g_key(&s, DB_KEY_RIGHTMETA, 1, 20, w, 8, &timer);
@@ -37,12 +38,17 @@ static void test_meta_and_enter(void)
 	expect(g_owner(&s, 30) == G_META, "one meta still held");
 
 	n = g_key(&s, DB_KEY_ENTER, 1, 100, w, 8, &timer);
-	expect(n >= 4, "enter emits four brightness edges");
-	expect(w[0].kind == GW_BRIGHT && w[0].brightness == 0, "enter edge 0");
-	expect(w[1].kind == GW_BRIGHT && w[1].brightness == 3, "enter edge 1");
-	expect(w[2].kind == GW_BRIGHT && w[2].brightness == 0, "enter edge 2");
-	expect(w[3].kind == GW_BRIGHT && w[3].brightness == 3, "enter edge 3");
-	expect(g_owner(&s, 100) == G_META, "meta owns again after the blink");
+	expect(g_owner(&s, 100) == G_ENTER, "enter owns at the press");
+	expect(n == 1 && w[0].kind == GW_BRIGHT && w[0].brightness == 0, "first edge is off");
+	expect(timer == 120, "off is held long enough to see");
+	n = g_tick(&s, 220, w, 8, &timer);
+	expect(n == 1 && w[0].brightness == 3, "second edge is on");
+	n = g_tick(&s, 340, w, 8, &timer);
+	expect(n == 1 && w[0].brightness == 0, "third edge is off");
+	n = g_tick(&s, 460, w, 8, &timer);
+	expect(n == 1 && w[0].brightness == 3, "fourth edge is on");
+	n = g_tick(&s, 580, w, 8, &timer);
+	expect(g_owner(&s, 580) == G_META, "meta owns again after the blink");
 	expect(g_meta_since(&s) == 0, "meta start did not move");
 
 	n = g_key(&s, DB_KEY_RIGHTMETA, 0, 150, w, 8, &timer);
@@ -60,11 +66,12 @@ static void test_enter_restart(void)
 
 	g_init(&s, 1, 2, 3, 2);
 	n = g_key(&s, DB_KEY_ENTER, 1, 0, w, 8, &timer);
-	expect(n >= 4 && w[1].brightness == 2, "first blink uses brightness 2");
+	expect(n == 1 && w[0].brightness == 0, "blink starts off");
 	n = g_key(&s, DB_KEY_ENTER, 1, 10, w, 8, &timer);
-	expect(n >= 4, "second enter blinks again");
-	expect(w[0].brightness == 0 && w[3].brightness == 2, "second blink is a full pair");
-	expect(g_owner(&s, 10) == G_NONE, "enter does not stay owner");
+	expect(g_owner(&s, 10) == G_ENTER, "a second press restarts the blink");
+	expect(n == 1 && w[0].brightness == 0, "restart begins at off");
+	n = g_tick(&s, 490, w, 8, &timer);
+	expect(g_owner(&s, 490) == G_NONE, "blink ends after four held edges");
 }
 
 static void test_erase_preempt(void)
@@ -75,10 +82,14 @@ static void test_erase_preempt(void)
 	int n;
 
 	g_init(&s, 10, 20, 30, 1);
-	g_key(&s, DB_KEY_BACKSPACE, 1, 0, w, 8, &timer);
+	n = g_key(&s, DB_KEY_BACKSPACE, 1, 0, w, 8, &timer);
 	expect(g_erase_since(&s) == 0, "erase starts at the press");
+	expect(n >= 1 && w[0].kind == GW_MODE && w[0].mode == 0, "erase is static");
+	expect(w[0].r == 255 && w[0].g == 0 && w[0].b == 0, "erase is red immediately");
+	expect(n >= 2 && w[1].kind == GW_BRIGHT && w[1].brightness == 3, "erase forces full brightness");
+	expect(timer == 0, "red does not ramp");
 	g_key(&s, DB_KEY_DELETE, 1, 500, w, 8, &timer);
-	expect(g_erase_since(&s) == 0, "delete does not reset the ramp");
+	expect(g_erase_since(&s) == 0, "delete does not restart the gesture");
 	expect(g_owner(&s, 500) == G_ERASE, "erase owns before meta");
 
 	g_key(&s, DB_KEY_LEFTMETA, 1, 4000, w, 8, &timer);
@@ -88,8 +99,8 @@ static void test_erase_preempt(void)
 	n = g_key(&s, DB_KEY_LEFTMETA, 0, 6000, w, 8, &timer);
 	expect(g_owner(&s, 6000) == G_ERASE, "erase owns after meta");
 	expect(n >= 1 && w[0].kind == GW_MODE && w[0].mode == 0, "ramp is static mode");
-	expect(w[0].r == 255 && w[0].g == 0 && w[0].b == 0, "six seconds is full red");
-	expect(timer == 0, "full red disarms the timer");
+	expect(w[0].r == 255 && w[0].g == 0 && w[0].b == 0, "held erase is still full red");
+	expect(timer == 0, "held red does not arm the timer");
 }
 
 static void test_hidden_fade_finishes(void)

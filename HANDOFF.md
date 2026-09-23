@@ -1,6 +1,6 @@
 # daeboard
 
-Status: **spec written, not implemented**. The reaction is the light. The daemon does not exec, and it does not publish keystrokes. Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`.
+Status: **running**. Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`. Unit: `daeboard.service` (transient). Stop with `sudo systemctl stop daeboard`. Socket: `/run/daeboard/daeboard.sock`.
 
 Machine: NixOS, hostname `nixos`, ASUS TUF A15 FA507NVR, kernel 6.18.52. asusd is active.
 
@@ -51,12 +51,18 @@ Newest key wins. Only one gesture is drawn. Meta left/right are one gesture. Bac
 
 Locked in the spec. One root musl-static binary. epoll on signalfd, the AT keyboard, one timerfd, and a `SOCK_SEQPACKET` socket (`ping`, `color`, `brightness`, `quit`). Gestures are compiled in. cmd `0` only, so the BIOS copy of the aura color is never overwritten.
 
+## Running
+
+Binary `~/Documents/daeboard/daeboard`, musl static, 66960 bytes. RSS about 100 KB while idle. `make test` prints `ok`.
+
+Kernel accepted `0 0 204 255 254 1` (static) and `0 1 204 255 254 1` (breathe), then static was restored. The phone has not confirmed the breathe looks right. Key gestures are not yet pressed on the hardware.
+
+`ping` returned `pong`. `color ccfffe` returned `ok`.
+
 ## Resume
 
-- Spec is written. Do not write C until it is reviewed.
+- Try Meta, Enter, and Backspace on the built-in keyboard.
+- Stop with `sudo systemctl stop daeboard`. It is a transient unit, gone after stop, and it is not in the NixOS config.
 - Do not edit `~/Documents/ctron` or `/etc/nixos` for this.
 - Do not stop asusd.
-- WhatsApp spare listener is attached for this session. Text the spare chat from the phone.
-- Do not edit `~/Documents/ctron` or `/etc/nixos` for this.
-- Do not stop asusd.
-- Mode integers for `kbd_rgb_mode` are not confirmed yet. Confirm with one root write, then restore, before any animation loop.
+- WhatsApp replies in this session go to LID `262607789416556@lid`. The phone-number JID was accepted by the server and did not show up in the chat.

@@ -1,6 +1,30 @@
 # daeboard
 
-Status: **running**. README: `README.md`. Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`. Unit: `daeboard.service` (transient). Stop with `sudo systemctl stop daeboard`. Socket: `/run/daeboard/daeboard.sock`. ctron steps are in `~/Documents/ctron/PLANS.md`.
+## Signed 2026-09-23 — Grok, FA507NVR, NixOS
+
+Status: **stopped**. Source matches the editor session. The daemon is not left running. It is a transient unit, not in the NixOS config. asusd stays up.
+
+Last ship: macros from `~/.config/ctron/daeboard.binds` (`--binds`, `reload`, `fire <name>`). Key codes are the real evdev numbers (space is 57; letters are not alphabetical). A 0 ms step holds only when it is the last step. An unknown key name is skipped so it does not drop the rest of the file.
+
+Known issues:
+
+- `key6` is still in the binds file. The daemon ignores it. Delete it from the ctron editor.
+- A step cannot be moved from the Down column to the Up column.
+- The keyboard does not change until ctron Save. Save starts the daemon if it is down.
+- AUR is not published. `install.sh` refuses on NixOS.
+- Open a new ctron. Saving from an older ctron process will cut a long macro line.
+
+Resume:
+
+```
+sudo systemd-run --unit=daeboard --collect --description=daeboard \
+  /home/arcioth/Documents/daeboard/daeboard \
+  --binds /home/arcioth/.config/ctron/daeboard.binds
+```
+
+Editor: ctron, LIGHT view, **b**. Do not stop asusd. Do not touch `/etc/nixos` for this.
+
+Spec: `docs/superpowers/specs/2026-09-23-daeboard-design.md`. Socket: `/run/daeboard/daeboard.sock`.
 
 Machine: NixOS, hostname `nixos`, ASUS TUF A15 FA507NVR, kernel 6.18.52. asusd is active.
 
@@ -55,7 +79,7 @@ Locked in the spec. One root musl-static binary. epoll on signalfd, the AT keybo
 
 Binary `~/Documents/daeboard/daeboard`, musl static, 66960 bytes. RSS about 100 KB while idle. `make test` prints `ok`.
 
-Restarted after the gesture timing change. Enter holds each edge 120 ms. Backspace snaps to red. Meta breathe uses speed 2. Try those three on the built-in keyboard.
+The running daemon loads `/home/arcioth/.config/ctron/daeboard.binds` and pushes `fire <key>` to socket clients when that section has a `ctron` line. ctron's LIGHT view can start, stop, reload, and refuse non-static aura while the daemon is up. `ctron --follow` runs the `ctron =` line. The in-TUI step list is still the binds file plus Reload. Neither tree's new code is committed.
 
 `ping` returned `pong`. `color ccfffe` returned `ok`.
 

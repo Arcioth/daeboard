@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "gesture.h"
+#include "macro.h"
 #include "input.h"
 #include "led.h"
 #include "ron.h"
@@ -34,7 +35,8 @@ static int lockfd = -1;
 static int clients[SOCK_CLIENTS];
 static int nclients;
 static int fail_streak;
-static struct gstate gst;
+static struct mrun run;
+static char binds_path[512];
 static int want_ms;
 
 static long long now_ms(void)
@@ -110,7 +112,16 @@ static void on_key(int code, int value)
 	int timer = -1;
 	int n;
 
-	n = g_key(&gst, code, value, now_ms(), w, MAXW, &timer);
+	n = mrun_key(&run, code, value, now_ms(), w, MAXW, &timer);
+	if (run.pending_fire[0]) {
+		char msg[40];
+		int c;
+
+		snprintf(msg, sizeof msg, "fire %s", run.pending_fire);
+		run.pending_fire[0] = 0;
+		for (c = 0; c < nclients; c++)
+			(void)send(clients[c], msg, strlen(msg), MSG_NOSIGNAL);
+	}
 	after_step(n, w, timer);
 }
 
@@ -129,7 +140,7 @@ static void on_tick(void)
 		if (kbd >= 0)
 			add_fd(kbd);
 	}
-	n = g_tick(&gst, now_ms(), w, MAXW, &timer);
+	n = mrun_tick(&run, now_ms(), w, MAXW, &timer);
 	after_step(n, w, timer);
 }
 
@@ -181,8 +192,26 @@ static void drop_client(int fd)
 
 static void restore_normal(void)
 {
-	led_mode(0, gst.nr, gst.ng, gst.nb, 1);
-	led_brightness(gst.nbri);
+	led_mode(0, run.nr, run.ng, run.nb, 1);
+	led_brightness(run.nbri);
+}
+
+static void reload_binds(void)
+{
+	struct mtable t;
+	int rc;
+
+	if (!binds_path[0])
+		return;
+	rc = macro_load(binds_path, &t);
+	if (rc == 0) {
+		mrun_set_table(&run, &t);
+		return;
+	}
+	if (rc == -2)
+		fprintf(stderr, "daeboard: cannot read %s\n", binds_path);
+	else
+		fprintf(stderr, "daeboard: %s:%d\n", binds_path, t.err_line);
 }
 
 static void reload_ron(void)
@@ -193,10 +222,10 @@ static void reload_ron(void)
 		fprintf(stderr, "daeboard: could not read %s\n", RON_PATH);
 		return;
 	}
-	g_set_normal(&gst, r, g, b, bri);
-	if (g_owner(&gst, now_ms()) == G_NONE) {
-		led_mode(0, r, g, b, 1);
-		led_brightness(bri);
+	mrun_set_normal(&run, r, g, b, bri);
+	if (mrun_idle(&run)) {
+		led_mode(0, run.nr, run.ng, run.nb, 1);
+		led_brightness(run.nbri);
 	}
 }
 
@@ -210,6 +239,7 @@ static int handle_signal(void)
 		return 0;
 	if (info.ssi_signo == SIGHUP) {
 		reload_ron();
+		reload_binds();
 		return 0;
 	}
 	if (info.ssi_signo == SIGINT || info.ssi_signo == SIGTERM)
@@ -257,21 +287,37 @@ static int client_line(int fd)
 		return 0;
 	}
 	buf[n] = 0;
-	r = gst.nr;
-	g = gst.ng;
-	b = gst.nb;
-	bri = gst.nbri;
+	if (strncmp(buf, "reload", 6) == 0 &&
+	    (buf[6] == 0 || buf[6] == '\n' || buf[6] == '\r')) {
+		struct mtable t;
+		int rc = binds_path[0] ? macro_load(binds_path, &t) : -2;
+
+		if (rc == 0) {
+			mrun_set_table(&run, &t);
+			snprintf(reply, sizeof reply, "ok");
+		} else if (rc == -1) {
+			snprintf(reply, sizeof reply, "err %d", t.err_line);
+		} else {
+			snprintf(reply, sizeof reply, "err");
+		}
+		(void)send(fd, reply, strlen(reply), MSG_NOSIGNAL);
+		return 0;
+	}
+	r = run.nr;
+	g = run.ng;
+	b = run.nb;
+	bri = run.nbri;
 	sock_command(buf, reply, (int)sizeof reply, &r, &g, &b, &bri, &quit);
 	(void)send(fd, reply, strlen(reply), MSG_NOSIGNAL);
 	if (quit)
 		return 1;
 	if (strcmp(reply, "ok") != 0)
 		return 0;
-	g_set_normal(&gst, r, g, b, bri);
-	owner = g_owner(&gst, now_ms());
-	if (owner == G_NONE) {
-		led_mode(0, gst.nr, gst.ng, gst.nb, 1);
-		led_brightness(gst.nbri);
+	mrun_set_normal(&run, r, g, b, bri);
+	owner = mrun_idle(&run);
+	if (owner) {
+		led_mode(0, run.nr, run.ng, run.nb, 1);
+		led_brightness(run.nbri);
 	}
 	return 0;
 }
@@ -321,14 +367,22 @@ static void load_normal(void)
 				bri = sysbri;
 		}
 	}
-	g_init(&gst, r, g, b, bri);
+	mrun_init(&run, r, g, b, bri);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	struct epoll_event evs[8];
 	int i;
 
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--binds") == 0 && i + 1 < argc) {
+			snprintf(binds_path, sizeof binds_path, "%s", argv[++i]);
+			continue;
+		}
+		fprintf(stderr, "usage: daeboard [--binds FILE]\n");
+		return 1;
+	}
 	signal(SIGPIPE, SIG_IGN);
 	if (take_lock() != 0) {
 		if (errno == EWOULDBLOCK || errno == EAGAIN)
@@ -338,6 +392,7 @@ int main(void)
 		return 1;
 	}
 	load_normal();
+	reload_binds();
 	epfd = epoll_create1(EPOLL_CLOEXEC);
 	tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 	if (epfd < 0 || tfd < 0 || setup_signals() < 0) {

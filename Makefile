@@ -15,20 +15,24 @@ else
   CC ?= gcc
 endif
 
-SRC = src/main.c src/gesture.c src/input.c src/led.c src/ron.c src/sock.c
+SRC = src/main.c src/macro.c src/input.c src/led.c src/ron.c src/sock.c
 
 .PHONY: all test clean
 
 all: daeboard
 
-daeboard: $(SRC) src/gesture.h src/input.h src/led.h src/ron.h src/sock.h
+daeboard: $(SRC) src/gesture.h src/macro.h src/input.h src/led.h src/ron.h src/sock.h
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRC)
 
 tests/gesture_test: tests/gesture_test.c src/gesture.c src/ron.c src/sock.c src/gesture.h src/ron.h src/sock.h
 	gcc -std=c11 -Wall -Wextra -Isrc -O2 -o $@ tests/gesture_test.c src/gesture.c src/ron.c src/sock.c
 
-test: tests/gesture_test
+tests/macro_test: tests/macro_test.c src/macro.c src/macro.h src/gesture.h
+	gcc -std=c11 -Wall -Wextra -Isrc -O2 -o $@ tests/macro_test.c src/macro.c
+
+test: tests/gesture_test tests/macro_test
 	./tests/gesture_test
+	./tests/macro_test
 
 clean:
-	rm -f daeboard tests/gesture_test
+	rm -f daeboard tests/gesture_test tests/macro_test

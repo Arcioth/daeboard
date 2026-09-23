@@ -64,6 +64,24 @@ The newest of those keys owns the light. A hidden one keeps its clock.
 
 Anything else replies `err`. The socket cannot run a program or read key codes.
 
+## Packaging
+
+Not on the AUR yet. Flatpak is the wrong package: the daemon has to write `asus::kbd_backlight` as root and read the real keyboard, and a sandbox that can do both is not a Flatpak.
+
+On a systemd distro other than NixOS, build, then:
+
+```bash
+sudo ./install.sh
+```
+
+That copies `./daeboard` to `/usr/local/bin/daeboard`, installs `contrib/daeboard.service`, and enables it. The script refuses to run when `/etc/NIXOS` exists.
+
+On NixOS, leave the unit out of `/etc`. Use the `systemd-run` line in Run, or add a module by hand under `~/Documents/nixos`.
+
+An AUR package can install the same binary and unit later (`daeboard`, and `daeboard-git` if a git package is worth shipping). ctron will name that package. It will not run an AUR helper.
+
+Rebinding is not in the daemon yet. The running keys are the three in the table above. The macro file (color, pause, fade, breathe, plus a ctron command on the same key) is planned in ctron's `PLANS.md`.
+
 ## Docs
 
 README this file. `AGENTS.md` is for agents. `HANDOFF.md` is session state. The design is `docs/superpowers/specs/2026-09-23-daeboard-design.md`.
